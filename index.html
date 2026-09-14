@@ -179,20 +179,12 @@ body {
 .num .nbox i.on {
   background: #2563eb;
 }
-.num .nc {
-  position: absolute;
-  right: 6px; top: 4px;
-  font-size: 9px; font-weight: 700;
-  color: #94a3b8;
-  line-height: 1;
-}
 .num.done {
   color: #cbd5e1;
 }
 .num.done .nbox {
   opacity: .45;
 }
-.num.done .nc { opacity: 0; }
 
 /* 清除全部按钮 */
 .num.clear {
@@ -211,27 +203,28 @@ body {
   letter-spacing: 0.5px;
 }
 
-/* ========== 操作栏 ========== */
+/* ========== 操作栏（5 个按钮） ========== */
 .actions {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
 }
 .act {
-  height: 46px;
-  border: 0; border-radius: 12px;
+  height: 44px;
+  border: 0; border-radius: 11px;
   background: #f1f5f9;
   color: #475569;
   font-family: inherit;
-  font-size: 13px; font-weight: 700;
+  font-size: 11.5px; font-weight: 700;
   cursor: pointer;
-  transition: background .12s, color .12s, transform .08s;
+  transition: background .12s, color .12s, transform .08s, opacity .12s;
   display: flex; align-items: center; justify-content: center;
-  gap: 4px;
-  padding: 0 4px;
+  gap: 2px;
+  padding: 0 2px;
   white-space: nowrap;
+  letter-spacing: 0;
 }
-.act:active {
+.act:active:not(:disabled) {
   background: #e2e8f0;
   transform: scale(.96);
 }
@@ -239,6 +232,10 @@ body {
   background: #2563eb;
   color: #ffffff;
   box-shadow: 0 0 0 1px #2563eb inset;
+}
+.act:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 /* ========== 弹窗（加载 / 完成） ========== */
@@ -422,7 +419,8 @@ body {
   <footer class="pad">
     <div class="numpad" id="numpad"></div>
     <div class="actions">
-      <button class="act" id="undoBtn">↶ 撤销</button>
+      <button class="act" id="backBtn" disabled>↶ 后退</button>
+      <button class="act" id="fwdBtn" disabled>↷ 前进</button>
       <button class="act" id="notesBtn">✎ 笔记</button>
       <button class="act" id="hintBtn">💡 提示</button>
       <button class="act" id="newBtn">⟳ 新局</button>
@@ -522,7 +520,8 @@ for (let i = 0; i < 81; i++) {
 
 const DIFF_TARGET = { easy: 45, medium: 36, hard: 30, expert: 28 };
 const DIFF_NAME = { easy: '简单', medium: '中等', hard: '困难', expert: '专家', extreme: '17 数' };
-const SAVE_KEY = 'sudoku_save_v2';
+const SAVE_KEY = 'sudoku_save_v3';
+const MAX_HISTORY = 200;
 
 const TEMPLATE_17 = {
   p: "000000010400000000020000000000050407008000300001090000300400200050100000000806000",
@@ -716,7 +715,8 @@ const state = {
   notes: null,
   selected: -1,
   notesMode: false,
-  history: [],
+  history: [],       // 操作数组
+  historyIndex: -1,  // 最后应用的操作索引
   timerId: null,
   startTime: 0,
   elapsed: 0,
@@ -740,6 +740,8 @@ const dlgMsg       = document.getElementById('dlgMsg');
 const dlgBtn       = document.getElementById('dlgBtn');
 const notesBtn     = document.getElementById('notesBtn');
 const diffOverlay  = document.getElementById('diffOverlay');
+const backBtn      = document.getElementById('backBtn');
+const fwdBtn       = document.getElementById('fwdBtn');
 
 const cells = [];
 const numBtns = [];
@@ -772,13 +774,11 @@ function buildNumpad() {
         '<i></i><i></i><i></i>' +
         '<i></i><i></i><i></i>' +
         '<i></i><i></i><i></i>' +
-      '</span>' +
-      '<span class="nc"></span>';
+      '</span>';
     b.addEventListener('click', function() { onNumber(v); });
     numpadEl.appendChild(b);
     numBtns.push(b);
   }
-  // 清除全部按钮（替代原来的单格删除键）
   const clearBtn = document.createElement('button');
   clearBtn.className = 'num clear';
   clearBtn.innerHTML = '<span class="nlabel">清空</span>';
@@ -796,6 +796,62 @@ function fitBoard() {
   boardEl.style.width = size + 'px';
   boardEl.style.height = size + 'px';
   boardEl.style.setProperty('--cs', (size / 9) + 'px');
+}
+
+// ============================================================
+// 历史记录 / 前后导航
+// ============================================================
+function pushOp(op) {
+  // 截断未来
+  state.history.length = state.historyIndex + 1;
+  state.history.push(op);
+  state.historyIndex++;
+  // 限制长度
+  if (state.history.length > MAX_HISTORY) {
+    state.history.shift();
+    state.historyIndex--;
+  }
+}
+
+function applyOp(op) {
+  const c = op.changes;
+  for (let k = 0; k < c.length; k++) {
+    state.grid[c[k].i] = c[k].av;
+    state.notes[c[k].i] = c[k].an;
+  }
+}
+
+function revertOp(op) {
+  const c = op.changes;
+  for (let k = 0; k < c.length; k++) {
+    state.grid[c[k].i] = c[k].bv;
+    state.notes[c[k].i] = c[k].bn;
+  }
+}
+
+function goBack() {
+  if (state.solved) return;
+  if (state.historyIndex < 0) return;
+  revertOp(state.history[state.historyIndex]);
+  state.historyIndex--;
+  state.selected = -1;
+  render();
+  scheduleSave();
+}
+
+function goForward() {
+  if (state.solved) return;
+  if (state.historyIndex >= state.history.length - 1) return;
+  state.historyIndex++;
+  applyOp(state.history[state.historyIndex]);
+  state.selected = -1;
+  render();
+  scheduleSave();
+}
+
+function updateNavButtons() {
+  backBtn.disabled = state.solved || state.historyIndex < 0;
+  fwdBtn.disabled = state.solved || state.historyIndex >= state.history.length - 1;
 }
 
 // ============================================================
@@ -857,12 +913,13 @@ function render() {
   }
 
   updateKeypad();
+  updateNavButtons();
 }
 
 function updateKeypad() {
-  const counts = [0,0,0,0,0,0,0,0,0,0];
   const boxFilled = [];
   for (let v = 0; v <= 9; v++) boxFilled[v] = [false,false,false,false,false,false,false,false,false];
+  const counts = [0,0,0,0,0,0,0,0,0,0];
 
   for (let i = 0; i < 81; i++) {
     const v = state.grid[i];
@@ -872,13 +929,7 @@ function updateKeypad() {
   }
 
   for (let v = 1; v <= 9; v++) {
-    const left = 9 - counts[v];
     const btn = numBtns[v - 1];
-
-    const nc = btn.querySelector('.nc');
-    const txt = left > 0 ? '' + left : '';
-    if (nc.textContent !== txt) nc.textContent = txt;
-
     const dots = btn.querySelectorAll('.nbox i');
     for (let b = 0; b < 9; b++) {
       const on = boxFilled[v][b];
@@ -886,8 +937,7 @@ function updateKeypad() {
         dots[b].classList.toggle('on', on);
       }
     }
-
-    const done = left <= 0;
+    const done = counts[v] >= 9;
     if (btn.classList.contains('done') !== done) {
       btn.classList.toggle('done', done);
     }
@@ -906,33 +956,51 @@ function updateHeader() {
 // ============================================================
 // 用户操作
 // ============================================================
-// 历史记录格式：
-//   { t:1, i, v, n }        单格操作
-//   { t:2, c:[{i,v,n},...] } 批量操作（用于清空）
-function pushHistory(i) {
-  state.history.push({ t: 1, i: i, v: state.grid[i], n: state.notes[i] });
-  if (state.history.length > 300) state.history.shift();
-}
-
-function pushBulkHistory(changes) {
-  state.history.push({ t: 2, c: changes });
-  if (state.history.length > 300) state.history.shift();
-}
-
-function clearPeerNotes(i, v) {
+// 收集同行、同列、同宫中会被 v 影响的笔记变化
+function collectPeerNotesChanges(i, v) {
   const r = R[i], c = C[i];
   const br = ((r / 3) | 0) * 3;
   const bc = ((c / 3) | 0) * 3;
-  const mask = ~(1 << v);
+  const mask = 1 << v;
+  const seen = {};
+  const result = [];
+
+  function check(k) {
+    if (k === i || seen[k]) return;
+    seen[k] = 1;
+    if (state.notes[k] & mask) {
+      result.push({ i: k, oldN: state.notes[k], newN: state.notes[k] & ~mask });
+    }
+  }
+
   for (let k = 0; k < 9; k++) {
-    state.notes[r * 9 + k] &= mask;
-    state.notes[k * 9 + c] &= mask;
+    check(r * 9 + k);
+    check(k * 9 + c);
   }
   for (let dr = 0; dr < 3; dr++) {
     for (let dc = 0; dc < 3; dc++) {
-      state.notes[(br + dr) * 9 + bc + dc] &= mask;
+      check((br + dr) * 9 + bc + dc);
     }
   }
+  return result;
+}
+
+// 在单元格 i 填入数字 v（含同辈笔记清理）
+function setNumberAt(i, v) {
+  const changes = [];
+  changes.push({ i: i, bv: state.grid[i], bn: state.notes[i], av: v, an: 0 });
+  const affected = collectPeerNotesChanges(i, v);
+  for (let k = 0; k < affected.length; k++) {
+    const a = affected[k];
+    changes.push({ i: a.i, bv: 0, bn: a.oldN, av: 0, an: a.newN });
+  }
+  // 应用
+  state.grid[i] = v;
+  state.notes[i] = 0;
+  for (let k = 0; k < affected.length; k++) {
+    state.notes[affected[k].i] = affected[k].newN;
+  }
+  pushOp({ changes: changes });
 }
 
 function onNumber(v) {
@@ -943,17 +1011,19 @@ function onNumber(v) {
 
   if (state.notesMode) {
     if (state.grid[i] !== 0) return;
-    pushHistory(i);
-    state.notes[i] ^= (1 << v);
+    const oldN = state.notes[i];
+    const newN = oldN ^ (1 << v);
+    state.notes[i] = newN;
+    pushOp({ changes: [{ i: i, bv: 0, bn: oldN, av: 0, an: newN }] });
   } else {
     if (state.grid[i] === v) {
-      pushHistory(i);
+      // 再点相同数字：清除该格
+      const oldV = state.grid[i];
+      const oldN = state.notes[i];
       state.grid[i] = 0;
+      pushOp({ changes: [{ i: i, bv: oldV, bn: oldN, av: 0, an: oldN }] });
     } else {
-      pushHistory(i);
-      state.grid[i] = v;
-      state.notes[i] = 0;
-      clearPeerNotes(i, v);
+      setNumberAt(i, v);
     }
   }
   render();
@@ -961,54 +1031,24 @@ function onNumber(v) {
   checkWin();
 }
 
-// 全作答清除（保留题目固定数字，可撤销）
+// 全作答清除（不弹确认，可撤销）
 function clearAllAnswers() {
   if (state.solved) return;
-
-  // 收集所有需要清除的格子
   const changes = [];
   for (let i = 0; i < 81; i++) {
     if (state.puzzle[i] !== 0) continue;
     if (state.grid[i] !== 0 || state.notes[i] !== 0) {
-      changes.push({ i: i, v: state.grid[i], n: state.notes[i] });
+      changes.push({ i: i, bv: state.grid[i], bn: state.notes[i], av: 0, an: 0 });
     }
   }
+  if (changes.length === 0) return;
 
-  if (changes.length === 0) {
-    // 没有可清除的内容
-    return;
-  }
-
-  if (!window.confirm('清除全部作答？（可用"撤销"恢复）')) return;
-
-  pushBulkHistory(changes);
   for (let k = 0; k < changes.length; k++) {
     state.grid[changes[k].i] = 0;
     state.notes[changes[k].i] = 0;
   }
+  pushOp({ changes: changes });
   state.selected = -1;
-  render();
-  scheduleSave();
-}
-
-function undo() {
-  if (state.solved) return;
-  const h = state.history.pop();
-  if (!h) return;
-
-  if (h.t === 2) {
-    // 批量恢复
-    for (let k = 0; k < h.c.length; k++) {
-      const item = h.c[k];
-      state.grid[item.i] = item.v;
-      state.notes[item.i] = item.n;
-    }
-  } else {
-    // 单格恢复（兼容旧存档 h.t 为 undefined 的情况）
-    state.grid[h.i] = h.v;
-    state.notes[h.i] = h.n;
-    state.selected = h.i;
-  }
   render();
   scheduleSave();
 }
@@ -1024,9 +1064,8 @@ function hint() {
     if (!pool.length) return;
     i = pool[Math.floor(Math.random() * pool.length)];
   }
-  pushHistory(i);
-  state.grid[i] = state.solution[i];
-  state.notes[i] = 0;
+  const v = state.solution[i];
+  setNumberAt(i, v);
   state.selected = i;
   render();
   scheduleSave();
@@ -1081,6 +1120,7 @@ function checkWin() {
   dlgBtn.hidden = false;
   dlgBtn.textContent = '再来一局';
   overlayEl.hidden = false;
+  render();
 }
 
 // ============================================================
@@ -1101,7 +1141,8 @@ function saveState() {
       n: Array.from(state.notes),
       e: state.elapsed,
       d: state.difficulty,
-      h: state.history.slice(-100),
+      h: state.history,
+      hi: state.historyIndex,
       m: state.notesMode
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -1120,6 +1161,9 @@ function loadState() {
     state.notes = Uint16Array.from(data.n);
     state.difficulty = data.d || 'medium';
     state.history = data.h || [];
+    state.historyIndex = (typeof data.hi === 'number')
+      ? data.hi
+      : state.history.length - 1;
     state.notesMode = !!data.m;
     state.selected = -1;
     state.solved = false;
@@ -1163,6 +1207,7 @@ function startGame(diff) {
     state.notes = new Uint16Array(81);
     state.selected = -1;
     state.history = [];
+    state.historyIndex = -1;
     state.notesMode = false;
     notesBtn.classList.remove('on');
 
@@ -1199,7 +1244,8 @@ boardEl.addEventListener('click', function(e) {
   render();
 });
 
-document.getElementById('undoBtn').addEventListener('click', undo);
+backBtn.addEventListener('click', goBack);
+fwdBtn.addEventListener('click', goForward);
 document.getElementById('hintBtn').addEventListener('click', hint);
 document.getElementById('newBtn').addEventListener('click', confirmNewGame);
 notesBtn.addEventListener('click', toggleNotes);
@@ -1222,7 +1268,6 @@ document.addEventListener('keydown', function(e) {
     e.preventDefault();
     onNumber(Number(e.key));
   } else if (e.key === '0') {
-    // 数字 0 触发清除全部
     e.preventDefault();
     clearAllAnswers();
   } else if (e.key === 'n' || e.key === 'N') {
@@ -1233,7 +1278,11 @@ document.addEventListener('keydown', function(e) {
     hint();
   } else if ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();
-    undo();
+    if (e.shiftKey) goForward();
+    else goBack();
+  } else if ((e.key === 'y' || e.key === 'Y') && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    goForward();
   } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
              e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
     e.preventDefault();
