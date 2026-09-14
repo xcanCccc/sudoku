@@ -73,9 +73,11 @@ body {
   grid-template-columns: repeat(9, 1fr);
   grid-template-rows: repeat(9, 1fr);
   background: #ffffff;
-  border-radius: 14px;
+  border-radius: 12px;
   overflow: hidden;
-  box-shadow: 0 0 0 2px #94a3b8, 0 10px 30px rgba(15, 23, 42, 0.1);
+  box-shadow:
+    0 0 0 3px #0f172a,
+    0 10px 30px rgba(15, 23, 42, 0.14);
   --cs: 40px;
 }
 .cell {
@@ -86,13 +88,27 @@ body {
   line-height: 1;
   color: #2563eb;
   background: #ffffff;
-  box-shadow: inset -1px -1px 0 0 #e5e7eb;
+  box-shadow:
+    inset -1px 0 0 0 #cbd5e1,
+    inset 0 -1px 0 0 #cbd5e1;
   cursor: pointer;
   transition: background .12s;
 }
-.cell.br { box-shadow: inset -2px -1px 0 0 #94a3b8; }
-.cell.bb { box-shadow: inset -1px -2px 0 0 #94a3b8; }
-.cell.br.bb { box-shadow: inset -2px -2px 0 0 #94a3b8; }
+.cell.br {
+  box-shadow:
+    inset -2.5px 0 0 0 #334155,
+    inset 0 -1px 0 0 #cbd5e1;
+}
+.cell.bb {
+  box-shadow:
+    inset -1px 0 0 0 #cbd5e1,
+    inset 0 -2.5px 0 0 #334155;
+}
+.cell.br.bb {
+  box-shadow:
+    inset -2.5px 0 0 0 #334155,
+    inset 0 -2.5px 0 0 #334155;
+}
 .cell.fixed { color: #0f172a; font-weight: 700; }
 .cell.peer { background: #f8fafc; }
 .cell.same { background: #dbeafe; }
@@ -124,29 +140,76 @@ body {
 }
 .num {
   position: relative;
-  height: 52px;
+  height: 62px;
   border: 0; border-radius: 12px;
   background: #f1f5f9;
   color: #1d4ed8;
   font-family: inherit;
-  font-size: 21px; font-weight: 700;
   cursor: pointer;
   transition: background .12s, transform .08s;
-  display: flex; align-items: center; justify-content: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 0 5px;
 }
 .num:active {
   background: #dbeafe;
   transform: scale(.95);
 }
+.num .nlabel {
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1;
+}
+/* 3×3 宫格分布点阵 */
+.num .nbox {
+  display: grid;
+  grid-template-columns: repeat(3, 5px);
+  grid-template-rows: repeat(3, 5px);
+  gap: 1px;
+}
+.num .nbox i {
+  display: block;
+  border-radius: 1px;
+  background: #cbd5e1;
+  transition: background .15s;
+}
+.num .nbox i.on {
+  background: #2563eb;
+}
 .num .nc {
   position: absolute;
-  right: 7px; bottom: 4px;
-  font-size: 9px; font-weight: 600;
+  right: 6px; top: 4px;
+  font-size: 9px; font-weight: 700;
   color: #94a3b8;
   line-height: 1;
 }
-.num.done { color: #cbd5e1; }
+.num.done {
+  color: #cbd5e1;
+}
+.num.done .nbox {
+  opacity: .45;
+}
 .num.done .nc { opacity: 0; }
+
+/* 清除全部按钮 */
+.num.clear {
+  background: #fef2f2;
+  color: #dc2626;
+  flex-direction: row;
+  gap: 3px;
+}
+.num.clear:active {
+  background: #fee2e2;
+  transform: scale(.95);
+}
+.num.clear .nlabel {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
 
 /* ========== 操作栏 ========== */
 .actions {
@@ -461,7 +524,6 @@ const DIFF_TARGET = { easy: 45, medium: 36, hard: 30, expert: 28 };
 const DIFF_NAME = { easy: '简单', medium: '中等', hard: '困难', expert: '专家', extreme: '17 数' };
 const SAVE_KEY = 'sudoku_save_v2';
 
-// 已验证的 17 提示唯一解数独模板（来自维基百科）
 const TEMPLATE_17 = {
   p: "000000010400000000020000000000050407008000300001090000300400200050100000000806000",
   s: "693784512487512936125963874932651487568247391741398625319475268856129743274836159"
@@ -608,15 +670,12 @@ function generateStandardPuzzle(difficulty) {
   return { puzzle: puzzle, solution: solution };
 }
 
-// 17 数：使用模板 + 随机对称变换 + 数字置换
 function generate17Puzzle() {
-  // 数字置换 1-9
   const digits = [1, 2, 3, 4, 5, 6, 7, 8, 9];
   shuffle(digits);
   const perm = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
   for (let i = 0; i < 9; i++) perm[i + 1] = digits[i];
 
-  // 对称变换: 0-3 旋转 0/90/180/270；4-7 镜像后再旋转
   const mode = Math.floor(Math.random() * 8);
 
   function mapIndex(i) {
@@ -707,23 +766,31 @@ function buildNumpad() {
   for (let v = 1; v <= 9; v++) {
     const b = document.createElement('button');
     b.className = 'num';
-    b.innerHTML = v + '<span class="nc"></span>';
+    b.innerHTML =
+      '<span class="nlabel">' + v + '</span>' +
+      '<span class="nbox">' +
+        '<i></i><i></i><i></i>' +
+        '<i></i><i></i><i></i>' +
+        '<i></i><i></i><i></i>' +
+      '</span>' +
+      '<span class="nc"></span>';
     b.addEventListener('click', function() { onNumber(v); });
     numpadEl.appendChild(b);
     numBtns.push(b);
   }
-  const del = document.createElement('button');
-  del.className = 'num';
-  del.textContent = '⌫';
-  del.addEventListener('click', erase);
-  numpadEl.appendChild(del);
+  // 清除全部按钮（替代原来的单格删除键）
+  const clearBtn = document.createElement('button');
+  clearBtn.className = 'num clear';
+  clearBtn.innerHTML = '<span class="nlabel">清空</span>';
+  clearBtn.addEventListener('click', clearAllAnswers);
+  numpadEl.appendChild(clearBtn);
 }
 
 let lastSize = 0;
 function fitBoard() {
   const r = wrapEl.getBoundingClientRect();
   if (r.width < 10 || r.height < 10) return;
-  const size = Math.floor(Math.max(160, Math.min(r.width, r.height)) - 2);
+  const size = Math.floor(Math.max(160, Math.min(r.width, r.height)) - 8);
   if (size === lastSize) return;
   lastSize = size;
   boardEl.style.width = size + 'px';
@@ -794,16 +861,32 @@ function render() {
 
 function updateKeypad() {
   const counts = [0,0,0,0,0,0,0,0,0,0];
+  const boxFilled = [];
+  for (let v = 0; v <= 9; v++) boxFilled[v] = [false,false,false,false,false,false,false,false,false];
+
   for (let i = 0; i < 81; i++) {
     const v = state.grid[i];
-    if (v) counts[v]++;
+    if (!v) continue;
+    counts[v]++;
+    boxFilled[v][B[i]] = true;
   }
+
   for (let v = 1; v <= 9; v++) {
     const left = 9 - counts[v];
     const btn = numBtns[v - 1];
+
     const nc = btn.querySelector('.nc');
     const txt = left > 0 ? '' + left : '';
     if (nc.textContent !== txt) nc.textContent = txt;
+
+    const dots = btn.querySelectorAll('.nbox i');
+    for (let b = 0; b < 9; b++) {
+      const on = boxFilled[v][b];
+      if (dots[b].classList.contains('on') !== on) {
+        dots[b].classList.toggle('on', on);
+      }
+    }
+
     const done = left <= 0;
     if (btn.classList.contains('done') !== done) {
       btn.classList.toggle('done', done);
@@ -823,8 +906,16 @@ function updateHeader() {
 // ============================================================
 // 用户操作
 // ============================================================
+// 历史记录格式：
+//   { t:1, i, v, n }        单格操作
+//   { t:2, c:[{i,v,n},...] } 批量操作（用于清空）
 function pushHistory(i) {
-  state.history.push({ i: i, v: state.grid[i], n: state.notes[i] });
+  state.history.push({ t: 1, i: i, v: state.grid[i], n: state.notes[i] });
+  if (state.history.length > 300) state.history.shift();
+}
+
+function pushBulkHistory(changes) {
+  state.history.push({ t: 2, c: changes });
   if (state.history.length > 300) state.history.shift();
 }
 
@@ -870,14 +961,32 @@ function onNumber(v) {
   checkWin();
 }
 
-function erase() {
+// 全作答清除（保留题目固定数字，可撤销）
+function clearAllAnswers() {
   if (state.solved) return;
-  const i = state.selected;
-  if (i < 0 || state.puzzle[i] !== 0) return;
-  if (state.grid[i] === 0 && state.notes[i] === 0) return;
-  pushHistory(i);
-  state.grid[i] = 0;
-  state.notes[i] = 0;
+
+  // 收集所有需要清除的格子
+  const changes = [];
+  for (let i = 0; i < 81; i++) {
+    if (state.puzzle[i] !== 0) continue;
+    if (state.grid[i] !== 0 || state.notes[i] !== 0) {
+      changes.push({ i: i, v: state.grid[i], n: state.notes[i] });
+    }
+  }
+
+  if (changes.length === 0) {
+    // 没有可清除的内容
+    return;
+  }
+
+  if (!window.confirm('清除全部作答？（可用"撤销"恢复）')) return;
+
+  pushBulkHistory(changes);
+  for (let k = 0; k < changes.length; k++) {
+    state.grid[changes[k].i] = 0;
+    state.notes[changes[k].i] = 0;
+  }
+  state.selected = -1;
   render();
   scheduleSave();
 }
@@ -886,9 +995,20 @@ function undo() {
   if (state.solved) return;
   const h = state.history.pop();
   if (!h) return;
-  state.grid[h.i] = h.v;
-  state.notes[h.i] = h.n;
-  state.selected = h.i;
+
+  if (h.t === 2) {
+    // 批量恢复
+    for (let k = 0; k < h.c.length; k++) {
+      const item = h.c[k];
+      state.grid[item.i] = item.v;
+      state.notes[item.i] = item.n;
+    }
+  } else {
+    // 单格恢复（兼容旧存档 h.t 为 undefined 的情况）
+    state.grid[h.i] = h.v;
+    state.notes[h.i] = h.n;
+    state.selected = h.i;
+  }
   render();
   scheduleSave();
 }
@@ -1084,29 +1204,27 @@ document.getElementById('hintBtn').addEventListener('click', hint);
 document.getElementById('newBtn').addEventListener('click', confirmNewGame);
 notesBtn.addEventListener('click', toggleNotes);
 
-// 难度选择
 diffOverlay.addEventListener('click', function(e) {
   const btn = e.target.closest ? e.target.closest('.diff-btn') : null;
   if (!btn) return;
   startGame(btn.dataset.diff);
 });
 
-// 完成弹窗按钮
 dlgBtn.addEventListener('click', function() {
   overlayEl.hidden = true;
   replaySame();
 });
 
-// 键盘
 document.addEventListener('keydown', function(e) {
   if (state.solved) return;
   if (!diffOverlay.hidden) return;
   if (e.key >= '1' && e.key <= '9') {
     e.preventDefault();
     onNumber(Number(e.key));
-  } else if (e.key === '0' || e.key === 'Backspace' || e.key === 'Delete') {
+  } else if (e.key === '0') {
+    // 数字 0 触发清除全部
     e.preventDefault();
-    erase();
+    clearAllAnswers();
   } else if (e.key === 'n' || e.key === 'N') {
     e.preventDefault();
     toggleNotes();
@@ -1131,7 +1249,6 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
-// 尺寸变化
 if (window.ResizeObserver) {
   new ResizeObserver(fitBoard).observe(wrapEl);
 }
@@ -1140,7 +1257,6 @@ window.addEventListener('orientationchange', function() {
   setTimeout(fitBoard, 120);
 });
 
-// 切后台立即保存
 document.addEventListener('visibilitychange', function() {
   if (document.hidden) saveState();
 });
@@ -1154,7 +1270,6 @@ fitBoard();
 setTimeout(fitBoard, 60);
 
 if (loadState()) {
-  // 恢复上次进度
   notesBtn.classList.toggle('on', state.notesMode);
   updateHeader();
   overlayEl.hidden = true;
@@ -1167,7 +1282,6 @@ if (loadState()) {
     setTimeout(checkWin, 50);
   }
 } else {
-  // 首次进入显示难度选择
   showDifficultyPicker();
 }
 
