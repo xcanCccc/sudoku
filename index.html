@@ -110,11 +110,11 @@ body {
     inset 0 -2.5px 0 0 #334155;
 }
 .cell.fixed { color: #0f172a; font-weight: 700; }
-.cell.peer { background: #f8fafc; }
-.cell.same { background: #dbeafe; }
-.cell.sel { background: #bfdbfe; }
+.cell.peer { background: #e2e8f0; }
+.cell.same { background: #bcd7fb; }
+.cell.sel { background: #8ab8f7; }
 .cell.wrong { color: #dc2626; }
-.cell.sel.wrong { color: #ef4444; }
+.cell.sel.wrong { color: #b91c1c; }
 
 .notes {
   display: grid;
@@ -129,6 +129,11 @@ body {
 .notes span {
   display: flex; align-items: center; justify-content: center;
   line-height: 1;
+}
+/* 笔记中与选中数字对应的标记 */
+.notes span.hl {
+  color: #e11d48;
+  font-weight: 800;
 }
 
 /* ========== 数字键盘 ========== */
@@ -163,7 +168,6 @@ body {
   font-weight: 700;
   line-height: 1;
 }
-/* 3×3 宫格分布点阵 */
 .num .nbox {
   display: grid;
   grid-template-columns: repeat(3, 5px);
@@ -405,7 +409,6 @@ body {
 </head>
 <body>
 
-<!-- ========== 游戏界面 ========== -->
 <div class="app">
   <header class="topbar">
     <div class="diff-name" id="diffName">中等</div>
@@ -428,7 +431,6 @@ body {
   </footer>
 </div>
 
-<!-- ========== 加载 / 完成弹窗 ========== -->
 <div class="overlay" id="overlay" hidden>
   <div class="dialog">
     <h2 id="dlgTitle">生成中…</h2>
@@ -437,7 +439,6 @@ body {
   </div>
 </div>
 
-<!-- ========== 难度选择页面 ========== -->
 <div class="diff-overlay" id="diffOverlay" hidden>
   <div class="diff-panel">
     <div class="diff-head">
@@ -545,10 +546,11 @@ function fmtTime(sec) {
   return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
 }
 
-function notesKey(mask) {
+// 笔记 key：包含内容 + 高亮数字（以便选中变化时重新渲染）
+function notesKey(mask, hlVal) {
   let s = '';
   for (let v = 1; v <= 9; v++) if (mask & (1 << v)) s += v;
-  return s;
+  return s + '#' + (hlVal || 0);
 }
 
 // ============================================================
@@ -715,8 +717,8 @@ const state = {
   notes: null,
   selected: -1,
   notesMode: false,
-  history: [],       // 操作数组
-  historyIndex: -1,  // 最后应用的操作索引
+  history: [],
+  historyIndex: -1,
   timerId: null,
   startTime: 0,
   elapsed: 0,
@@ -802,11 +804,9 @@ function fitBoard() {
 // 历史记录 / 前后导航
 // ============================================================
 function pushOp(op) {
-  // 截断未来
   state.history.length = state.historyIndex + 1;
   state.history.push(op);
   state.historyIndex++;
-  // 限制长度
   if (state.history.length > MAX_HISTORY) {
     state.history.shift();
     state.historyIndex--;
@@ -857,12 +857,16 @@ function updateNavButtons() {
 // ============================================================
 // 渲染
 // ============================================================
-function appendNotes(cell, mask) {
+// 生成笔记 DOM，hlVal 用于高亮对应数字
+function appendNotes(cell, mask, hlVal) {
   const d = document.createElement('div');
   d.className = 'notes';
   for (let v = 1; v <= 9; v++) {
     const s = document.createElement('span');
-    if (mask & (1 << v)) s.textContent = v;
+    if (mask & (1 << v)) {
+      s.textContent = v;
+      if (hlVal && v === hlVal) s.className = 'hl';
+    }
     d.appendChild(s);
   }
   cell.appendChild(d);
@@ -887,10 +891,11 @@ function render() {
         delete cell.dataset.nk;
       }
     } else if (state.notes[i]) {
-      const key = notesKey(state.notes[i]);
+      // 高亮数字传入笔记渲染，选中变化时也会刷新
+      const key = notesKey(state.notes[i], selVal);
       if (cell.dataset.nk !== key) {
         cell.textContent = '';
-        appendNotes(cell, state.notes[i]);
+        appendNotes(cell, state.notes[i], selVal);
         cell.dataset.nk = key;
       }
     } else {
@@ -956,7 +961,6 @@ function updateHeader() {
 // ============================================================
 // 用户操作
 // ============================================================
-// 收集同行、同列、同宫中会被 v 影响的笔记变化
 function collectPeerNotesChanges(i, v) {
   const r = R[i], c = C[i];
   const br = ((r / 3) | 0) * 3;
@@ -985,7 +989,6 @@ function collectPeerNotesChanges(i, v) {
   return result;
 }
 
-// 在单元格 i 填入数字 v（含同辈笔记清理）
 function setNumberAt(i, v) {
   const changes = [];
   changes.push({ i: i, bv: state.grid[i], bn: state.notes[i], av: v, an: 0 });
@@ -994,7 +997,6 @@ function setNumberAt(i, v) {
     const a = affected[k];
     changes.push({ i: a.i, bv: 0, bn: a.oldN, av: 0, an: a.newN });
   }
-  // 应用
   state.grid[i] = v;
   state.notes[i] = 0;
   for (let k = 0; k < affected.length; k++) {
@@ -1017,7 +1019,6 @@ function onNumber(v) {
     pushOp({ changes: [{ i: i, bv: 0, bn: oldN, av: 0, an: newN }] });
   } else {
     if (state.grid[i] === v) {
-      // 再点相同数字：清除该格
       const oldV = state.grid[i];
       const oldN = state.notes[i];
       state.grid[i] = 0;
@@ -1031,7 +1032,6 @@ function onNumber(v) {
   checkWin();
 }
 
-// 全作答清除（不弹确认，可撤销）
 function clearAllAnswers() {
   if (state.solved) return;
   const changes = [];
